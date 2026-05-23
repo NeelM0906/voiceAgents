@@ -1,5 +1,45 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { DEFAULT_NO_TENANT_FALLBACK } from './instructions.js';
+
+function loadDotEnvLocal() {
+  if (!existsSync('.env.local')) {
+    return;
+  }
+
+  const lines = readFileSync('.env.local', 'utf8').split(/\r?\n/);
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+
+    const separator = trimmed.indexOf('=');
+
+    if (separator <= 0) {
+      continue;
+    }
+
+    const key = trimmed.slice(0, separator).trim();
+
+    if (process.env[key] !== undefined) {
+      continue;
+    }
+
+    const rawValue = trimmed.slice(separator + 1).trim();
+    const value =
+      (rawValue.startsWith('"') && rawValue.endsWith('"')) ||
+      (rawValue.startsWith("'") && rawValue.endsWith("'"))
+        ? rawValue.slice(1, -1)
+        : rawValue;
+
+    process.env[key] = value;
+  }
+}
+
+loadDotEnvLocal();
 
 const nonEmptyString = z.string().trim().min(1);
 const optionalNonEmptyString = nonEmptyString.optional();

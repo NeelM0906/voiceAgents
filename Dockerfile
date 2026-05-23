@@ -30,4 +30,6 @@ COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 
+# Default entrypoint is the worker. Override the command with
+# `node dist/api.js` to run the admin API from the same image.
 CMD ["node", "dist/agent.js", "start"]

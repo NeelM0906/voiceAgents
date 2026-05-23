@@ -9,19 +9,27 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
-    "dev": "tsx --env-file=.env.local src/agent.ts dev",
+    "dev": "concurrently -k -n worker,api -c blue,magenta \"pnpm dev:worker\" \"pnpm dev:api\"",
+    "dev:worker": "tsx --env-file=.env.local src/agent.ts dev",
+    "dev:api": "tsx watch src/api.ts",
     "download-files": "livekit-agents download-files",
-    "start": "node dist/agent.js start"
+    "start": "pnpm start:worker",
+    "start:worker": "node dist/agent.js start",
+    "start:api": "node dist/api.js"
   },
   "dependencies": {
+    "@hono/node-server": "^2.0.3",
     "@livekit/agents": "^1.4.4",
     "@livekit/agents-plugin-openai": "^1.4.4",
     "@livekit/agents-plugin-silero": "^1.4.4",
+    "@supabase/supabase-js": "^2.106.1",
+    "hono": "^4.12.22",
     "pino": "^10.3.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
+    "concurrently": "^9.2.1",
     "tsx": "^4.22.3",
     "typescript": "^6.0.3"
   },
