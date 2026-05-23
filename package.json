@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
     "dev": "tsx --env-file=.env.local src/agent.ts dev",
-    "download-files": "tsx --env-file=.env.local src/agent.ts download-files",
+    "download-files": "livekit-agents download-files",
     "start": "node dist/agent.js start"
   },
   "dependencies": {

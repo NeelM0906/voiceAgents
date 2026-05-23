@@ -12,7 +12,7 @@ const envSchema = z.object({
   LIVEKIT_API_KEY: nonEmptyString,
   LIVEKIT_API_SECRET: nonEmptyString,
   OPENAI_API_KEY: nonEmptyString,
-  AGENT_NAME: nonEmptyString.default('voice-agent'),
+  LIVEKIT_AGENT_NAME: nonEmptyString.default('inbound-agent'),
   OPENAI_REALTIME_MODEL: nonEmptyString.default('gpt-realtime'),
   OPENAI_REALTIME_VOICE: nonEmptyString.default('marin'),
   LOG_LEVEL: logLevelSchema.default('info'),
