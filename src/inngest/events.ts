@@ -29,6 +29,12 @@ export type EscalationTriggeredData = {
   callId?: string | null;
 };
 
+export type CallSummaryReadyData = {
+  callId: string;
+  tenantId: string;
+  conversationId?: string | null;
+};
+
 export const smsInboundReceivedEvent = eventType('sms/inbound.received', {
   schema: staticSchema<SmsInboundReceivedData>(),
 });
@@ -39,4 +45,8 @@ export const voiceCallCompletedEvent = eventType('voice/call.completed', {
 
 export const escalationTriggeredEvent = eventType('escalation/triggered', {
   schema: staticSchema<EscalationTriggeredData>(),
+});
+
+export const callSummaryReadyEvent = eventType('call/summary.ready', {
+  schema: staticSchema<CallSummaryReadyData>(),
 });

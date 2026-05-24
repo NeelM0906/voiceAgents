@@ -48,3 +48,47 @@ export async function updateCallEnded(callId: string, status: CallStatus): Promi
 
   return data;
 }
+
+export async function getCallById(input: {
+  tenantId: string;
+  callId: string;
+}): Promise<CallRow | null> {
+  const { data, error } = await supabase
+    .from('calls')
+    .select('*')
+    .eq('tenant_id', input.tenantId)
+    .eq('id', input.callId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+export async function updateCallSummary(input: {
+  tenantId: string;
+  callId: string;
+  summary: string | null;
+  keyFacts: Json | null;
+  outcome: string;
+}): Promise<CallRow> {
+  const { data, error } = await supabase
+    .from('calls')
+    .update({
+      summary: input.summary,
+      key_facts: input.keyFacts,
+      outcome: input.outcome,
+    })
+    .eq('tenant_id', input.tenantId)
+    .eq('id', input.callId)
+    .select('*')
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}

@@ -134,6 +134,24 @@ export async function recentMessagesForContext(input: {
   return [...(data ?? [])].reverse();
 }
 
+export async function listMessagesForCall(input: {
+  tenantId: string;
+  callId: string;
+}): Promise<MessageRow[]> {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('tenant_id', input.tenantId)
+    .eq('call_id', input.callId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? [];
+}
+
 function toMessageInsert(input: InsertMessageInput): MessageInsert {
   return {
     conversation_id: input.conversationId,
