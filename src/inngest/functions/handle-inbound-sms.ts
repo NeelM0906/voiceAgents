@@ -133,6 +133,7 @@ export const handleInboundSms = inngest.createFunction(
           createdAt: new Date(message.created_at),
         })),
         userMessage: body,
+        tenantId,
       });
     });
 
