@@ -43,8 +43,15 @@ loadDotEnvLocal();
 
 const nonEmptyString = z.string().trim().min(1);
 const optionalNonEmptyString = nonEmptyString.optional();
+const optionalString = z.string().trim().optional();
 
 const logLevelSchema = z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']);
+const booleanEnvSchema = z
+  .preprocess(
+    (value) => (value === undefined ? undefined : String(value).trim().toLowerCase()),
+    z.enum(['true', 'false']).default('true'),
+  )
+  .transform((value) => value === 'true');
 
 const envSchema = z.object({
   LIVEKIT_URL: optionalNonEmptyString.refine(
@@ -54,6 +61,15 @@ const envSchema = z.object({
   LIVEKIT_API_KEY: optionalNonEmptyString,
   LIVEKIT_API_SECRET: optionalNonEmptyString,
   OPENAI_API_KEY: optionalNonEmptyString,
+  TWILIO_ACCOUNT_SID: optionalNonEmptyString,
+  TWILIO_AUTH_TOKEN: optionalNonEmptyString,
+  INNGEST_EVENT_KEY: optionalString,
+  INNGEST_SIGNING_KEY: optionalString,
+  INNGEST_APP_ID: nonEmptyString.default('voice-agents'),
+  PUBLIC_BASE_URL: nonEmptyString.url().default('http://localhost:8787'),
+  OPENAI_SMS_MODEL: nonEmptyString.default('gpt-4o-mini'),
+  SMS_HISTORY_WINDOW: z.coerce.number().int().positive().default(20),
+  FOLLOWUP_SMS_ENABLED: booleanEnvSchema,
   LIVEKIT_AGENT_NAME: nonEmptyString.default('inbound-agent'),
   SUPABASE_URL: nonEmptyString.url(),
   SUPABASE_SERVICE_ROLE_KEY: nonEmptyString,
@@ -83,6 +99,9 @@ const workerEnvSchema = envSchema.required({
 
 const apiEnvSchema = envSchema.required({
   ADMIN_API_KEY: true,
+  OPENAI_API_KEY: true,
+  TWILIO_ACCOUNT_SID: true,
+  TWILIO_AUTH_TOKEN: true,
 });
 
 function parseConfigForProcess<T extends z.ZodType>(schema: T, processName: string): z.infer<T> {
