@@ -14,6 +14,9 @@
     "dev:api": "tsx watch src/api.ts",
     "dev:inngest": "npx inngest-cli@latest dev -u http://localhost:${API_PORT:-8787}/api/inngest",
     "download-files": "livekit-agents download-files",
+    "ingest": "tsx src/cli/ingest.ts",
+    "eval": "tsx src/cli/eval.ts",
+    "embed:reindex": "tsx src/cli/ingest.ts --reindex",
     "start": "pnpm start:worker",
     "start:worker": "node dist/agent.js start",
     "start:api": "node dist/api.js"
@@ -24,6 +27,8 @@
     "@livekit/agents-plugin-openai": "^1.4.4",
     "@livekit/agents-plugin-silero": "^1.4.4",
     "@supabase/supabase-js": "^2.106.1",
+    "cohere-ai": "^8.0.0",
+    "fast-glob": "^3.3.3",
     "hono": "^4.12.22",
     "inngest": "^4.4.0",
     "openai": "^6.39.0",

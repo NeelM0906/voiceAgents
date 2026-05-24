@@ -7,7 +7,13 @@ export const logger = pino({
   },
   level: config.LOG_LEVEL,
   redact: {
-    paths: ['LIVEKIT_API_SECRET', 'OPENAI_API_KEY', '*.apiKey', '*.apiSecret'],
+    paths: [
+      'LIVEKIT_API_SECRET',
+      'OPENAI_API_KEY',
+      'COHERE_API_KEY',
+      '*.apiKey',
+      '*.apiSecret',
+    ],
     remove: true,
   },
 });

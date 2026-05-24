@@ -46,6 +46,7 @@ const optionalNonEmptyString = nonEmptyString.optional();
 const optionalString = z.string().trim().optional();
 
 const logLevelSchema = z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']);
+const ragPipelineSchema = z.enum(['hybrid', 'page_index']);
 const booleanEnvSchema = z
   .preprocess(
     (value) => (value === undefined ? undefined : String(value).trim().toLowerCase()),
@@ -77,6 +78,20 @@ const envSchema = z.object({
   API_PORT: z.coerce.number().int().positive().default(8787),
   NO_TENANT_FALLBACK_MESSAGE: nonEmptyString.default(DEFAULT_NO_TENANT_FALLBACK),
   LOG_LEVEL: logLevelSchema.default('info'),
+  ACTIVE_RAG_PIPELINE: ragPipelineSchema.default('hybrid'),
+  RAG_TOP_K: z.coerce.number().int().min(1).max(50).default(8),
+  OPENAI_EMBED_MODEL: nonEmptyString.default('text-embedding-3-small'),
+  HYBRID_HYDE_ENABLED: booleanEnvSchema,
+  HYBRID_HYDE_MODEL: nonEmptyString.default('gpt-4o-mini'),
+  HYBRID_RERANK_ENABLED: booleanEnvSchema,
+  COHERE_API_KEY: optionalNonEmptyString,
+  COHERE_RERANK_MODEL: nonEmptyString.default('rerank-v3.5'),
+  PAGEINDEX_NAVIGATOR_MODEL: nonEmptyString.default('gpt-4o-mini'),
+  PAGEINDEX_SUMMARY_MODEL: nonEmptyString.default('gpt-4o-mini'),
+  PAGEINDEX_MAX_DEPTH: z.coerce.number().int().min(1).max(12).default(4),
+  PAGEINDEX_MAX_FANOUT: z.coerce.number().int().min(1).max(10).default(3),
+  EVAL_JUDGE_MODEL: nonEmptyString.default('gpt-4o'),
+  EVAL_DATASET_PATH: optionalString.default('eval/dataset.jsonl'),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
