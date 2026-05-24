@@ -20,6 +20,7 @@ import {
 import { insertCall, updateCallEnded } from './db/calls.js';
 import { insertMessage, recentMessagesForContext } from './db/messages.js';
 import { getTenantByPhoneNumber } from './db/tenants.js';
+import { flagEmergency } from './escalation.js';
 import type { CallRow, CallStatus, MessageRow, TenantWithVoiceConfig } from './db/types.js';
 import { inngest } from './inngest/client.js';
 import { voiceCallCompletedEvent } from './inngest/events.js';
@@ -254,6 +255,7 @@ async function startTenantSession(options: {
           contactPhone,
           calledNumber: options.calledNumber,
           durationMs,
+          conversationId,
         },
         {
           id: call.id,
@@ -280,6 +282,9 @@ async function startTenantSession(options: {
     instructions: buildVoiceInstructions(voiceConfig.system_prompt, recentMessages),
     tools: buildVoiceTools({
       tenantId: tenant.id,
+      conversationId,
+      callId: call.id,
+      contactPhone,
       logFields,
     }),
   });
@@ -420,6 +425,9 @@ function registerVoiceTranscriptPersistence(input: {
 
 function buildVoiceTools(input: {
   tenantId: string;
+  conversationId: string | null;
+  callId: string;
+  contactPhone: string | null;
   logFields: Omit<CallLogFields, 'event'>;
 }): llm.ToolContext {
   return {
@@ -459,6 +467,32 @@ function buildVoiceTools(input: {
             clearTimeout(fillerTimer);
           }
         }
+      },
+    }),
+    flag_emergency: llm.tool({
+      description:
+        'Flag the current interaction as an emergency requiring immediate owner notification. Use when the caller describes an active leak, fire, flood, safety issue, or anything matching the tenant emergency criteria.',
+      parameters: z.object({
+        reason: z.string().trim().min(1).max(200),
+        severity: z.enum(['high', 'critical']).optional().default('high'),
+      }),
+      execute: async (args) => {
+        const parsedArgs = z
+          .object({
+            reason: z.string().trim().min(1).max(200),
+            severity: z.enum(['high', 'critical']).optional().default('high'),
+          })
+          .parse(args);
+
+        return flagEmergency({
+          tenantId: input.tenantId,
+          source: 'voice',
+          reason: parsedArgs.reason,
+          severity: parsedArgs.severity,
+          conversationId: input.conversationId,
+          callId: input.callId,
+          contactPhone: input.contactPhone,
+        });
       },
     }),
   };

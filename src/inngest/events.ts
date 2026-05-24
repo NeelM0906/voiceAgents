@@ -15,6 +15,18 @@ export type VoiceCallCompletedData = {
   contactPhone: string;
   calledNumber: string;
   durationMs: number;
+  conversationId?: string | null;
+};
+
+export type EscalationTriggeredData = {
+  escalationId: string;
+  tenantId: string;
+  source: 'voice' | 'sms';
+  reason: string;
+  severity: 'high' | 'critical';
+  contactPhone?: string | null;
+  conversationId?: string | null;
+  callId?: string | null;
 };
 
 export const smsInboundReceivedEvent = eventType('sms/inbound.received', {
@@ -23,4 +35,8 @@ export const smsInboundReceivedEvent = eventType('sms/inbound.received', {
 
 export const voiceCallCompletedEvent = eventType('voice/call.completed', {
   schema: staticSchema<VoiceCallCompletedData>(),
+});
+
+export const escalationTriggeredEvent = eventType('escalation/triggered', {
+  schema: staticSchema<EscalationTriggeredData>(),
 });

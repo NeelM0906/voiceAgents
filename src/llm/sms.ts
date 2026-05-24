@@ -1,5 +1,7 @@
 import OpenAI from 'openai';
+import { z } from 'zod';
 import { config } from '../config.js';
+import { flagEmergency } from '../escalation.js';
 import {
   searchMethodology,
   searchMethodologyArgsSchema,
@@ -39,6 +41,38 @@ const searchMethodologyTool = {
   },
 } satisfies OpenAI.Chat.Completions.ChatCompletionTool;
 
+const flagEmergencyArgsSchema = z.object({
+  reason: z.string().trim().min(1).max(200),
+  severity: z.enum(['high', 'critical']).optional(),
+});
+
+const flagEmergencyTool = {
+  type: 'function',
+  function: {
+    name: 'flag_emergency',
+    description:
+      'Flag the current interaction as an emergency requiring immediate owner notification. Use when the caller describes an active leak, fire, flood, safety issue, or anything matching the tenant emergency criteria.',
+    parameters: {
+      type: 'object',
+      properties: {
+        reason: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 200,
+        },
+        severity: {
+          type: 'string',
+          enum: ['high', 'critical'],
+          default: 'high',
+        },
+      },
+      required: ['reason'],
+      additionalProperties: false,
+    },
+    strict: true,
+  },
+} satisfies OpenAI.Chat.Completions.ChatCompletionTool;
+
 export type SmsHistoryMessage = {
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -52,11 +86,13 @@ export async function generateSmsReply(input: {
   userMessage: string;
   model?: string;
   tenantId?: string;
+  conversationId?: string;
+  contactPhone?: string;
 }): Promise<string> {
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     {
       role: 'system',
-      content: `${input.systemPrompt}\n\nUse search_methodology when a caller's situation requires company methodology, objection handling, pricing framing, emergency triage, or closing-loop guidance. Keep the final SMS concise and grounded in retrieved guidance when used.`,
+      content: `${input.systemPrompt}\n\nUse search_methodology when a caller's situation requires company methodology, objection handling, pricing framing, emergency triage, or closing-loop guidance. Use flag_emergency for active leaks, fire, flood, safety issues, or tenant emergency criteria. Keep the final SMS concise and grounded in retrieved guidance when used.`,
     },
   ];
 
@@ -78,7 +114,7 @@ export async function generateSmsReply(input: {
     const completion = await openai.chat.completions.create({
       model,
       messages,
-      tools: [searchMethodologyTool],
+      tools: [searchMethodologyTool, flagEmergencyTool],
       tool_choice: 'auto',
       temperature: 0.6,
       max_tokens: 220,
@@ -106,7 +142,13 @@ export async function generateSmsReply(input: {
       messages.push({
         role: 'tool',
         tool_call_id: toolCall.id,
-        content: JSON.stringify(await executeToolCall(toolCall, input.tenantId)),
+        content: JSON.stringify(
+          await executeToolCall(toolCall, {
+            tenantId: input.tenantId,
+            conversationId: input.conversationId,
+            contactPhone: input.contactPhone,
+          }),
+        ),
       });
     }
   }
@@ -155,7 +197,11 @@ function toAssistantToolCallMessage(
 
 async function executeToolCall(
   toolCall: OpenAI.Chat.Completions.ChatCompletionMessageToolCall,
-  tenantId: string | undefined,
+  context: {
+    tenantId: string | undefined;
+    conversationId: string | undefined;
+    contactPhone: string | undefined;
+  },
 ) {
   if (!isFunctionToolCall(toolCall)) {
     return {
@@ -163,19 +209,40 @@ async function executeToolCall(
     };
   }
 
-  if (toolCall.function.name !== 'search_methodology') {
+  if (toolCall.function.name === 'search_methodology') {
+    const parsedArgs = searchMethodologyArgsSchema.parse(JSON.parse(toolCall.function.arguments));
+
+    return searchMethodology({
+      query: parsedArgs.query,
+      topK: parsedArgs.top_k,
+      tenantId: context.tenantId,
+    });
+  }
+
+  if (toolCall.function.name === 'flag_emergency') {
+    if (!context.tenantId) {
+      return {
+        error: 'tenant_not_available',
+      };
+    }
+
+    const parsedArgs = flagEmergencyArgsSchema.parse(JSON.parse(toolCall.function.arguments));
+
+    return flagEmergency({
+      tenantId: context.tenantId,
+      source: 'sms',
+      reason: parsedArgs.reason,
+      severity: parsedArgs.severity,
+      conversationId: context.conversationId,
+      contactPhone: context.contactPhone,
+    });
+  }
+
+  {
     return {
       error: 'unknown_tool',
     };
   }
-
-  const parsedArgs = searchMethodologyArgsSchema.parse(JSON.parse(toolCall.function.arguments));
-
-  return searchMethodology({
-    query: parsedArgs.query,
-    topK: parsedArgs.top_k,
-    tenantId,
-  });
 }
 
 function isFunctionToolCall(

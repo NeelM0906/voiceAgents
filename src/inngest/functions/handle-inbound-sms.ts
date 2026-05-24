@@ -134,6 +134,8 @@ export const handleInboundSms = inngest.createFunction(
         })),
         userMessage: body,
         tenantId,
+        conversationId,
+        contactPhone,
       });
     });
 
