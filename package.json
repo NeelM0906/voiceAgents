@@ -9,9 +9,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
-    "dev": "concurrently -k -n worker,api -c blue,magenta \"pnpm dev:worker\" \"pnpm dev:api\"",
+    "dev": "concurrently -k -n worker,api,inngest -c blue,magenta,yellow \"pnpm dev:worker\" \"pnpm dev:api\" \"pnpm dev:inngest\"",
     "dev:worker": "tsx --env-file=.env.local src/agent.ts dev",
     "dev:api": "tsx watch src/api.ts",
+    "dev:inngest": "npx inngest-cli@latest dev -u http://localhost:${API_PORT:-8787}/api/inngest",
     "download-files": "livekit-agents download-files",
     "start": "pnpm start:worker",
     "start:worker": "node dist/agent.js start",
