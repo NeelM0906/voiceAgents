@@ -48,3 +48,21 @@ export async function updateEscalationOwnerNotification(input: {
 
   return data;
 }
+
+export async function listEscalationsForConversation(input: {
+  tenantId: string;
+  conversationId: string;
+}): Promise<EscalationRow[]> {
+  const { data, error } = await supabase
+    .from('escalations')
+    .select('*')
+    .eq('tenant_id', input.tenantId)
+    .eq('conversation_id', input.conversationId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? [];
+}

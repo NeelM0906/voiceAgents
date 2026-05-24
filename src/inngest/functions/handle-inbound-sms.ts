@@ -8,7 +8,7 @@ import { generateSmsReply } from '../../llm/sms.js';
 import { logger } from '../../logger.js';
 import { OptedOutError, sendSms } from '../../twilio/client.js';
 import { inngest } from '../client.js';
-import { smsInboundReceivedEvent } from '../events.js';
+import { crmSyncRequestedEvent, smsInboundReceivedEvent } from '../events.js';
 
 type LoadedContext =
   | {
@@ -186,6 +186,23 @@ export const handleInboundSms = inngest.createFunction(
         conversationId,
         lastMessageAt: assistantMessage.created_at,
       });
+    });
+
+    await step.run('queue-crm-sync', async () => {
+      await inngest.send(
+        crmSyncRequestedEvent.create(
+          {
+            tenantId,
+            conversationId,
+            contactPhone,
+            reason: 'sms_reply_sent',
+            latestMessageAt: assistantMessage.created_at,
+          },
+          {
+            id: `${conversationId}:${assistantMessage.created_at}`,
+          },
+        ),
+      );
     });
 
     return {

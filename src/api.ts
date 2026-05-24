@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { getApiConfig } from './config.js';
 import { logger } from './logger.js';
 import { conversationRoutes } from './routes/conversations.js';
+import { crmRoutes } from './routes/crm.js';
 import { healthRoutes } from './routes/health.js';
 import { inngestRoutes } from './routes/inngest.js';
 import { libraryRoutes } from './routes/library.js';
@@ -32,6 +33,7 @@ app.use('/admin/*', async (c, next) => {
 app.route('/admin/tenants', tenantRoutes);
 app.route('/admin/tenants', smsConfigRoutes);
 app.route('/admin/tenants', conversationRoutes);
+app.route('/admin/tenants', crmRoutes);
 app.route('/admin/library', libraryRoutes);
 
 serve(

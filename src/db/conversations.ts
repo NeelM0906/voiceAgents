@@ -156,3 +156,30 @@ export async function bumpConversationLastMessageAt(input: {
 
   return data;
 }
+
+export async function updateConversationCrmSync(input: {
+  tenantId: string;
+  conversationId: string;
+  crmContactId: string;
+}): Promise<ConversationRow> {
+  const { data, error } = await supabase
+    .from('conversations')
+    .update({
+      crm_contact_id: input.crmContactId,
+      crm_last_synced_at: new Date().toISOString(),
+    })
+    .eq('tenant_id', input.tenantId)
+    .eq('id', input.conversationId)
+    .select('*')
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    throw new DbNotFoundError(`Conversation not found: ${input.conversationId}`);
+  }
+
+  return data;
+}

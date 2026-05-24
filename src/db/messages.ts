@@ -114,6 +114,26 @@ export async function listMessagesByConversation(input: {
   };
 }
 
+export async function listAllMessagesByConversation(input: {
+  tenantId: string;
+  conversationId: string;
+  limit?: number;
+}): Promise<MessageRow[]> {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('tenant_id', input.tenantId)
+    .eq('conversation_id', input.conversationId)
+    .order('created_at', { ascending: true })
+    .limit(input.limit ?? 200);
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? [];
+}
+
 export async function recentMessagesForContext(input: {
   tenantId: string;
   conversationId: string;

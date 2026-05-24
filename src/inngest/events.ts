@@ -35,6 +35,15 @@ export type CallSummaryReadyData = {
   conversationId?: string | null;
 };
 
+export type CrmSyncRequestedData = {
+  tenantId: string;
+  conversationId: string;
+  contactPhone: string;
+  callId?: string | null;
+  reason: 'call_completed' | 'sms_reply_sent' | 'manual_test';
+  latestMessageAt?: string | null;
+};
+
 export const smsInboundReceivedEvent = eventType('sms/inbound.received', {
   schema: staticSchema<SmsInboundReceivedData>(),
 });
@@ -49,4 +58,8 @@ export const escalationTriggeredEvent = eventType('escalation/triggered', {
 
 export const callSummaryReadyEvent = eventType('call/summary.ready', {
   schema: staticSchema<CallSummaryReadyData>(),
+});
+
+export const crmSyncRequestedEvent = eventType('call/sync-to-crm.requested', {
+  schema: staticSchema<CrmSyncRequestedData>(),
 });
