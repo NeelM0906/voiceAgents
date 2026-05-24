@@ -5,6 +5,7 @@ import { logger } from './logger.js';
 import { conversationRoutes } from './routes/conversations.js';
 import { healthRoutes } from './routes/health.js';
 import { inngestRoutes } from './routes/inngest.js';
+import { libraryRoutes } from './routes/library.js';
 import { smsConfigRoutes } from './routes/sms_config.js';
 import { tenantRoutes } from './routes/tenants.js';
 import { webhookRoutes } from './routes/webhooks.js';
@@ -31,6 +32,7 @@ app.use('/admin/*', async (c, next) => {
 app.route('/admin/tenants', tenantRoutes);
 app.route('/admin/tenants', smsConfigRoutes);
 app.route('/admin/tenants', conversationRoutes);
+app.route('/admin/library', libraryRoutes);
 
 serve(
   {
