@@ -1,6 +1,6 @@
 # voiceAgents
 
-Iteration 3 turns the inbound voice loop into a multi-channel tenant service:
+Iteration 4 turns the inbound voice loop into a multi-channel tenant service with a retrievable methodology library:
 
 Twilio phone number -> shared TwiML SIP dial -> LiveKit Cloud SIP inbound trunk -> LiveKit dispatch rule -> LiveKit room -> Node.js agent worker -> Supabase tenant lookup -> OpenAI Realtime conversation.
 
@@ -8,9 +8,14 @@ SMS now follows a durable path:
 
 Twilio Messaging webhook -> Hono -> Inngest event -> tenant + shared conversation lookup -> OpenAI chat completion -> Twilio REST reply.
 
-Supabase is the system of record for tenants, phone numbers, voice configs, SMS configs, call rows, conversations, and messages. Voice and SMS share a `(tenant_id, contact_phone)` conversation key, so a caller who later texts continues the same thread.
+Methodology retrieval now has two swappable backends behind one interface:
 
-Out of scope remains CRM connectors, RAG, tools, dashboards, outbound calling, MMS, automated Twilio/LiveKit provisioning, and advanced API auth beyond `ADMIN_API_KEY`.
+- `hybrid`: markdown semantic chunks, `text-embedding-3-small`, Postgres full-text search, pgvector HNSW, HyDE, RRF, and Cohere rerank.
+- `page_index`: vectorless heading tree with cached LLM summaries and cached tree-walk navigation decisions.
+
+Supabase is the system of record for tenants, phone numbers, voice configs, SMS configs, call rows, conversations, messages, methodology documents, chunks, PageIndex nodes, and eval runs. Voice and SMS share a `(tenant_id, contact_phone)` conversation key, so a caller who later texts continues the same thread.
+
+Out of scope remains CRM connectors, dashboards, outbound calling, MMS, automated Twilio/LiveKit provisioning, and advanced API auth beyond `ADMIN_API_KEY`.
 
 ## Requirements
 
@@ -20,6 +25,7 @@ Out of scope remains CRM connectors, RAG, tools, dashboards, outbound calling, M
 - LiveKit Cloud project and authenticated LiveKit CLI
 - Twilio phone number
 - OpenAI API key with Realtime access
+- Cohere API key when `HYBRID_RERANK_ENABLED=true`
 - Supabase project
 
 All local development and checks should run from the repo venv:
@@ -60,6 +66,20 @@ cp .env.example .env.local
 | `FOLLOWUP_SMS_ENABLED` | api | Set `false` to disable post-call follow-up SMS globally. |
 | `NO_TENANT_FALLBACK_MESSAGE` | worker | Message spoken before hangup when a called number is not configured. |
 | `LOG_LEVEL` | both | `trace`, `debug`, `info`, `warn`, `error`, or `fatal`. |
+| `ACTIVE_RAG_PIPELINE` | both | `hybrid` or `page_index`; defaults to `hybrid` and controls voice/SMS tool retrieval. |
+| `RAG_TOP_K` | both | Default retrieval count, capped by tool calls. |
+| `OPENAI_EMBED_MODEL` | ingest, api | Defaults to `text-embedding-3-small` for 1536-dimension pgvector storage. |
+| `HYBRID_HYDE_ENABLED` | api | Enables HyDE query expansion for hybrid retrieval. |
+| `HYBRID_HYDE_MODEL` | api | Defaults to `gpt-4o-mini`. |
+| `HYBRID_RERANK_ENABLED` | api | Enables Cohere reranking for hybrid retrieval. |
+| `COHERE_API_KEY` | api | Required when hybrid rerank is enabled. |
+| `COHERE_RERANK_MODEL` | api | Defaults to `rerank-v3.5`; `rerank-3.5` is accepted as an alias in code. |
+| `PAGEINDEX_NAVIGATOR_MODEL` | api | Defaults to `gpt-4o-mini`. |
+| `PAGEINDEX_SUMMARY_MODEL` | ingest | Defaults to `gpt-4o-mini`. |
+| `PAGEINDEX_MAX_DEPTH` | api | Max tree-walk depth. Defaults to `4`. |
+| `PAGEINDEX_MAX_FANOUT` | api | Max child choices per tree-walk hop. Defaults to `3`. |
+| `EVAL_JUDGE_MODEL` | eval | Defaults to `gpt-4o` for answer generation and judging. |
+| `EVAL_DATASET_PATH` | eval | Optional JSONL dataset path. If absent, eval queries are generated from ingested docs. |
 
 ## Supabase
 
@@ -67,6 +87,7 @@ Apply the raw SQL migrations in order:
 
 1. `supabase/migrations/20260524000000_init_tenants.sql`
 2. `supabase/migrations/20260525000000_sms_and_conversations.sql`
+3. `supabase/migrations/20260526000000_library_rag.sql`
 
 Then run `supabase/seed.sql`.
 
@@ -81,6 +102,9 @@ The migrations create:
 - `messages`
 - indexes on tenant phone numbers and call lookup fields
 - indexes for conversation and message lookup
+- `library_documents`, `library_chunks`, `library_tree_nodes`
+- eval query/run/result tables
+- PageIndex summary and navigation caches
 - `updated_at` triggers for tenants, voice configs, and SMS configs
 
 The seed inserts the Acme Roofing tenant, voice config, and placeholder number `+15550001111`. Replace that number during local setup.
@@ -94,6 +118,39 @@ The SMS migration also seeds an Acme Roofing SMS config with a short assistant p
 Voice and SMS messages are stored in the same `messages` table under a `conversations` row keyed by `(tenant_id, contact_phone)`. The voice worker writes finalized user and assistant turns with `channel='voice'` and the current `call_id`. SMS functions write inbound and outbound texts with `channel='sms'` and Twilio SIDs in `external_id`.
 
 Both channels load the recent `SMS_HISTORY_WINDOW` messages from that shared conversation. A call after a text sees the text history in the Realtime instructions; a text after a call sees the voice turns in the SMS chat completion context.
+
+## Methodology RAG
+
+The agent-facing tool is `search_methodology`. Both voice and SMS use `src/rag/active.ts`, so switching `ACTIVE_RAG_PIPELINE=page_index` changes both channels without code changes. The tool logs pipeline, query, latency, cost, result ids, titles, and scores at info level; full retrieved bodies are debug only.
+
+Ingest the fixture library:
+
+```bash
+pnpm ingest library/fixtures/*.md
+```
+
+Re-running the same command is a no-op for unchanged `(source_ref, content_hash)` documents. To rebuild indexes for already-ingested documents:
+
+```bash
+pnpm embed:reindex
+```
+
+Run the side-by-side eval:
+
+```bash
+pnpm eval
+```
+
+The eval runner loads `EVAL_DATASET_PATH` JSONL when present. Otherwise it generates and caches synthetic questions from ingested documents, runs both retrieval pipelines, builds grounded answers, judges them on a 1-5 scale, stores rows in Supabase, and writes a report under `eval/reports/`.
+
+Manual spot checks:
+
+```bash
+curl -X POST http://localhost:8787/admin/library/search \
+  -H "x-api-key: $ADMIN_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{"query":"how do I handle an emergency leak","pipeline":"hybrid","top_k":5}'
+```
 
 ## Run Locally
 
@@ -321,6 +378,36 @@ Responses:
 - `201 { messageSid, persisted_message_id }`
 - `400` when `to` is not E.164 or the body is empty/too long
 
+### Library
+
+`GET /admin/library/documents`
+
+Returns ingested methodology documents with chunk and PageIndex node counts.
+
+`DELETE /admin/library/documents/:id`
+
+Deletes the document and cascades to chunks and tree nodes.
+
+`POST /admin/library/search`
+
+```json
+{
+  "query": "how do I handle an emergency leak",
+  "top_k": 5,
+  "pipeline": "hybrid"
+}
+```
+
+`pipeline` is optional; omitted requests use `ACTIVE_RAG_PIPELINE`.
+
+`POST /admin/library/eval/run`
+
+```json
+{ "pipelines": ["hybrid", "page_index"] }
+```
+
+Starts the eval in the background and returns queued run IDs. Poll with `GET /admin/library/eval/runs` or inspect one run with `GET /admin/library/eval/runs/:id`.
+
 ## SMS Webhook
 
 `POST /webhooks/twilio/sms` is public because Twilio calls it directly. It does not use `x-api-key`; it validates `X-Twilio-Signature` against `${PUBLIC_BASE_URL}/webhooks/twilio/sms` and verifies `AccountSid`.
@@ -340,6 +427,8 @@ Replies are sent asynchronously by the `handle-inbound-sms` Inngest function thr
 pnpm install --frozen-lockfile
 pnpm check
 pnpm build
+pnpm ingest library/fixtures/*.md
+pnpm eval
 pnpm download-files
 ```
 
@@ -348,7 +437,7 @@ pnpm download-files
 Build:
 
 ```bash
-docker build -t voice-agents:iteration-3 .
+docker build -t voice-agents:iteration-4 .
 ```
 
 Run the worker, which is the default command:
@@ -366,7 +455,7 @@ docker run --rm \
   -e INNGEST_APP_ID=voice-agents \
   -e SMS_HISTORY_WINDOW=20 \
   -e NO_TENANT_FALLBACK_MESSAGE \
-  voice-agents:iteration-3
+  voice-agents:iteration-4
 ```
 
 Run the admin API from the same image by overriding the command:
@@ -387,7 +476,7 @@ docker run --rm -p 8787:8787 \
   -e SMS_HISTORY_WINDOW=20 \
   -e FOLLOWUP_SMS_ENABLED=true \
   -e API_PORT=8787 \
-  voice-agents:iteration-3 node dist/api.js
+  voice-agents:iteration-4 node dist/api.js
 ```
 
 ## Manual Twilio And LiveKit Setup
