@@ -4,12 +4,14 @@ import {
   ServerOptions,
   cli,
   defineAgent,
+  llm,
   waitForParticipant,
   voice,
 } from '@livekit/agents';
 import * as openai from '@livekit/agents-plugin-openai';
 import * as silero from '@livekit/agents-plugin-silero';
 import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
 import { config, getWorkerConfig } from './config.js';
 import {
   getOrCreateConversationByContact,
@@ -23,6 +25,10 @@ import { inngest } from './inngest/client.js';
 import { voiceCallCompletedEvent } from './inngest/events.js';
 import { TECHNICAL_DIFFICULTIES_MESSAGE } from './instructions.js';
 import { logger } from './logger.js';
+import {
+  searchMethodology,
+  searchMethodologyArgsSchema,
+} from './rag/tools/search_methodology.js';
 import { normalizePhoneE164 } from './utils/phone.js';
 
 type ProcessUserData = {
@@ -272,6 +278,10 @@ async function startTenantSession(options: {
 
   const agent = new voice.Agent({
     instructions: buildVoiceInstructions(voiceConfig.system_prompt, recentMessages),
+    tools: buildVoiceTools({
+      tenantId: tenant.id,
+      logFields,
+    }),
   });
   const session = createSession({
     vad: options.vad,
@@ -406,6 +416,52 @@ function registerVoiceTranscriptPersistence(input: {
       content,
     });
   });
+}
+
+function buildVoiceTools(input: {
+  tenantId: string;
+  logFields: Omit<CallLogFields, 'event'>;
+}): llm.ToolContext {
+  return {
+    search_methodology: llm.tool({
+      description:
+        "Search the company methodology library for guidance on handling this caller's situation. Use when the caller's question or situation calls for specific framing, scripts, or escalation rules.",
+      parameters: z.object({
+        query: z.string().trim().min(1).max(200),
+        top_k: z.number().int().min(1).max(10).optional(),
+      }),
+      execute: async (args, opts) => {
+        const parsedArgs = searchMethodologyArgsSchema.parse(args);
+        let fillerTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+          fillerTimer = null;
+          void opts.ctx.session
+            .say('Let me check on that.', {
+              addToChatCtx: false,
+              allowInterruptions: false,
+            })
+            .waitForPlayout()
+            .catch((error) => {
+              logger.warn(
+                { ...input.logFields, event: 'tool_filler_failed', error },
+                'failed to play retrieval filler',
+              );
+            });
+        }, 400);
+
+        try {
+          return await searchMethodology({
+            query: parsedArgs.query,
+            topK: parsedArgs.top_k,
+            tenantId: input.tenantId,
+          });
+        } finally {
+          if (fillerTimer) {
+            clearTimeout(fillerTimer);
+          }
+        }
+      },
+    }),
+  };
 }
 
 function persistVoiceMessage(input: {
