@@ -168,6 +168,10 @@ function createSession(options: {
   });
 }
 
+function exactSpeechInstructions(message: string): string {
+  return `Say exactly this message and no more: ${JSON.stringify(message)}`;
+}
+
 async function speakAndDisconnect(options: {
   ctx: JobContext<ProcessUserData>;
   vad: silero.VAD;
@@ -186,12 +190,13 @@ async function speakAndDisconnect(options: {
   await session.start({
     agent,
     room: options.ctx.room,
+    record: false,
   });
 
   await session
-    .say(options.message, {
-      allowInterruptions: false,
-      addToChatCtx: false,
+    .generateReply({
+      instructions: exactSpeechInstructions(options.message),
+      toolChoice: 'none',
     })
     .waitForPlayout();
   await session.close();
@@ -362,22 +367,29 @@ async function startTenantSession(options: {
       agent,
       room: options.ctx.room,
     });
-
-    logger.info(
-      {
-        ...logFields,
-        event: 'session_started',
-        realtimeModel: voiceConfig.model,
-        realtimeVoice: voiceConfig.voice,
-      },
-      'voice session started',
-    );
-
-    await session.say(options.firstMessageOverride ?? voiceConfig.first_message).waitForPlayout();
   } catch (error) {
     logger.error({ ...logFields, event: 'error', error }, 'tenant voice session failed');
     await finalizeCall('failed');
     throw error;
+  }
+
+  logger.info(
+    {
+      ...logFields,
+      event: 'session_started',
+      realtimeModel: voiceConfig.model,
+      realtimeVoice: voiceConfig.voice,
+    },
+    'voice session started',
+  );
+
+  try {
+    session.generateReply({
+      instructions: exactSpeechInstructions(options.firstMessageOverride ?? voiceConfig.first_message),
+      toolChoice: 'none',
+    });
+  } catch (error) {
+    logger.error({ ...logFields, event: 'error', error }, 'failed to queue first voice message');
   }
 }
 
