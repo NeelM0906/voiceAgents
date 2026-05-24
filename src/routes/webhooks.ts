@@ -1,10 +1,13 @@
 import { Hono } from 'hono';
+import { detectSmsComplianceKeyword, isOptedOut } from '../compliance/optout.js';
 import { config } from '../config.js';
 import { getOrCreateConversationByContact } from '../db/conversations.js';
+import { deleteConsumerOptout, upsertConsumerOptout } from '../db/optouts.js';
 import { getTenantByPhoneNumber } from '../db/tenants.js';
 import { inngest } from '../inngest/client.js';
 import { smsInboundReceivedEvent } from '../inngest/events.js';
 import { logger } from '../logger.js';
+import { sendSmsRaw } from '../twilio/client.js';
 import { validateTwilioSignature } from '../twilio/signature.js';
 import { normalizePhoneE164 } from '../utils/phone.js';
 
@@ -86,6 +89,87 @@ webhookRoutes.post('/twilio/sms', async (c) => {
           tenantStatus: tenantConfig?.tenant.status,
         },
         'SMS webhook received for unavailable tenant',
+      );
+      return emptyTwiML();
+    }
+
+    const complianceKeyword = detectSmsComplianceKeyword(params.Body);
+
+    if (complianceKeyword === 'stop') {
+      await upsertConsumerOptout({
+        tenantId: tenantConfig.tenant.id,
+        contactPhone,
+        reason: 'stop_keyword',
+      });
+      await sendSmsRaw({
+        from: calledNumber,
+        to: contactPhone,
+        body: 'You are unsubscribed. No more messages will be sent. Reply START to resubscribe.',
+      });
+
+      routeLogger.info(
+        {
+          ...logFields,
+          tenantId: tenantConfig.tenant.id,
+          keyword: complianceKeyword,
+        },
+        'handled SMS compliance keyword',
+      );
+      return emptyTwiML();
+    }
+
+    if (complianceKeyword === 'start') {
+      await deleteConsumerOptout({
+        tenantId: tenantConfig.tenant.id,
+        contactPhone,
+      });
+      await sendSmsRaw({
+        from: calledNumber,
+        to: contactPhone,
+        body: 'You are resubscribed. Reply STOP to opt out anytime.',
+      });
+
+      routeLogger.info(
+        {
+          ...logFields,
+          tenantId: tenantConfig.tenant.id,
+          keyword: complianceKeyword,
+        },
+        'handled SMS compliance keyword',
+      );
+      return emptyTwiML();
+    }
+
+    if (complianceKeyword === 'help') {
+      await sendSmsRaw({
+        from: calledNumber,
+        to: contactPhone,
+        body: `${tenantConfig.tenant.name}: AI assistant for inbound texts. Reply STOP to opt out. Msg & data rates may apply.`,
+      });
+
+      routeLogger.info(
+        {
+          ...logFields,
+          tenantId: tenantConfig.tenant.id,
+          keyword: complianceKeyword,
+        },
+        'handled SMS compliance keyword',
+      );
+      return emptyTwiML();
+    }
+
+    if (
+      await isOptedOut({
+        tenantId: tenantConfig.tenant.id,
+        contactPhone,
+      })
+    ) {
+      routeLogger.info(
+        {
+          ...logFields,
+          tenantId: tenantConfig.tenant.id,
+        },
+        'ignored inbound SMS from opted-out contact',
       );
       return emptyTwiML();
     }

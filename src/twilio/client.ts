@@ -10,7 +10,7 @@ if (!accountSid || !authToken) {
 
 const client = twilio(accountSid, authToken);
 
-export async function sendSms(input: {
+export async function sendSmsRaw(input: {
   from: string;
   to: string;
   body: string;
@@ -24,4 +24,12 @@ export async function sendSms(input: {
   return {
     sid: message.sid,
   };
+}
+
+export async function sendSms(input: {
+  from: string;
+  to: string;
+  body: string;
+}): Promise<{ sid: string }> {
+  return sendSmsRaw(input);
 }

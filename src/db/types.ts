@@ -6,6 +6,10 @@ export type MessageChannel = 'sms' | 'voice';
 export type MessageRole = 'user' | 'assistant' | 'system';
 export type RagPipelineName = 'hybrid' | 'page_index';
 export type EvalQuerySource = 'synthetic' | 'human';
+export type ConsumerOptoutReason = 'stop_keyword' | 'manual' | 'complaint';
+export type CrmProvider = 'ghl';
+export type ReviewRequestStatus = 'queued' | 'sent' | 'skipped' | 'failed';
+export type EscalationSource = 'voice' | 'sms';
 
 export type TenantRow = {
   id: string;
@@ -113,6 +117,9 @@ export type CallRow = {
   ended_at: string | null;
   status: CallStatus;
   metadata: Json;
+  summary: string | null;
+  key_facts: Json | null;
+  outcome: string | null;
 };
 
 export type CallInsert = {
@@ -126,6 +133,9 @@ export type CallInsert = {
   ended_at?: string | null;
   status?: CallStatus;
   metadata?: Json;
+  summary?: string | null;
+  key_facts?: Json | null;
+  outcome?: string | null;
 };
 
 export type CallUpdate = {
@@ -138,6 +148,9 @@ export type CallUpdate = {
   ended_at?: string | null;
   status?: CallStatus;
   metadata?: Json;
+  summary?: string | null;
+  key_facts?: Json | null;
+  outcome?: string | null;
 };
 
 export type ConversationRow = {
@@ -146,6 +159,8 @@ export type ConversationRow = {
   contact_phone: string;
   last_message_at: string;
   created_at: string;
+  crm_contact_id: string | null;
+  crm_last_synced_at: string | null;
 };
 
 export type ConversationInsert = {
@@ -154,12 +169,16 @@ export type ConversationInsert = {
   contact_phone: string;
   last_message_at?: string;
   created_at?: string;
+  crm_contact_id?: string | null;
+  crm_last_synced_at?: string | null;
 };
 
 export type ConversationUpdate = {
   contact_phone?: string;
   last_message_at?: string;
   created_at?: string;
+  crm_contact_id?: string | null;
+  crm_last_synced_at?: string | null;
 };
 
 export type MessageRow = {
@@ -191,6 +210,171 @@ export type MessageInsert = {
 export type MessageUpdate = {
   content?: string;
   metadata?: Json;
+};
+
+export type ConsumerOptoutRow = {
+  tenant_id: string;
+  contact_phone: string;
+  reason: ConsumerOptoutReason;
+  created_at: string;
+};
+
+export type ConsumerOptoutInsert = {
+  tenant_id: string;
+  contact_phone: string;
+  reason?: ConsumerOptoutReason;
+  created_at?: string;
+};
+
+export type ConsumerOptoutUpdate = {
+  reason?: ConsumerOptoutReason;
+  created_at?: string;
+};
+
+export type TenantOwnerConfigRow = {
+  tenant_id: string;
+  owner_name: string | null;
+  owner_phone: string | null;
+  notify_on_emergency: boolean;
+  notify_on_missed_call: boolean;
+  updated_at: string;
+};
+
+export type TenantOwnerConfigInsert = {
+  tenant_id: string;
+  owner_name?: string | null;
+  owner_phone?: string | null;
+  notify_on_emergency?: boolean;
+  notify_on_missed_call?: boolean;
+  updated_at?: string;
+};
+
+export type TenantOwnerConfigUpdate = {
+  owner_name?: string | null;
+  owner_phone?: string | null;
+  notify_on_emergency?: boolean;
+  notify_on_missed_call?: boolean;
+  updated_at?: string;
+};
+
+export type TenantReviewConfigRow = {
+  tenant_id: string;
+  enabled: boolean;
+  review_link: string;
+  template: string;
+  delay_seconds: number;
+  send_after_call_min_duration_seconds: number;
+  updated_at: string;
+};
+
+export type TenantReviewConfigInsert = {
+  tenant_id: string;
+  enabled?: boolean;
+  review_link: string;
+  template: string;
+  delay_seconds?: number;
+  send_after_call_min_duration_seconds?: number;
+  updated_at?: string;
+};
+
+export type TenantReviewConfigUpdate = {
+  enabled?: boolean;
+  review_link?: string;
+  template?: string;
+  delay_seconds?: number;
+  send_after_call_min_duration_seconds?: number;
+  updated_at?: string;
+};
+
+export type TenantCrmConfigRow = {
+  tenant_id: string;
+  provider: CrmProvider;
+  location_id: string;
+  api_key_encrypted: string;
+  pipeline_id: string | null;
+  default_stage_id: string | null;
+  enabled: boolean;
+  updated_at: string;
+};
+
+export type TenantCrmConfigInsert = {
+  tenant_id: string;
+  provider: CrmProvider;
+  location_id: string;
+  api_key_encrypted: string;
+  pipeline_id?: string | null;
+  default_stage_id?: string | null;
+  enabled?: boolean;
+  updated_at?: string;
+};
+
+export type TenantCrmConfigUpdate = {
+  provider?: CrmProvider;
+  location_id?: string;
+  api_key_encrypted?: string;
+  pipeline_id?: string | null;
+  default_stage_id?: string | null;
+  enabled?: boolean;
+  updated_at?: string;
+};
+
+export type ReviewRequestRow = {
+  id: string;
+  tenant_id: string;
+  call_id: string;
+  contact_phone: string;
+  status: ReviewRequestStatus;
+  skipped_reason: string | null;
+  message_sid: string | null;
+  created_at: string;
+};
+
+export type ReviewRequestInsert = {
+  id?: string;
+  tenant_id: string;
+  call_id: string;
+  contact_phone: string;
+  status: ReviewRequestStatus;
+  skipped_reason?: string | null;
+  message_sid?: string | null;
+  created_at?: string;
+};
+
+export type ReviewRequestUpdate = {
+  status?: ReviewRequestStatus;
+  skipped_reason?: string | null;
+  message_sid?: string | null;
+};
+
+export type EscalationRow = {
+  id: string;
+  tenant_id: string;
+  call_id: string | null;
+  conversation_id: string | null;
+  source: EscalationSource;
+  reason: string;
+  contact_phone: string | null;
+  owner_notified_at: string | null;
+  owner_message_sid: string | null;
+  created_at: string;
+};
+
+export type EscalationInsert = {
+  id?: string;
+  tenant_id: string;
+  call_id?: string | null;
+  conversation_id?: string | null;
+  source: EscalationSource;
+  reason: string;
+  contact_phone?: string | null;
+  owner_notified_at?: string | null;
+  owner_message_sid?: string | null;
+  created_at?: string;
+};
+
+export type EscalationUpdate = {
+  owner_notified_at?: string | null;
+  owner_message_sid?: string | null;
 };
 
 export type LibraryDocumentRow = {
@@ -446,6 +630,30 @@ export type Database = {
         Update: TenantSmsConfigUpdate;
         Relationships: [];
       };
+      consumer_optouts: {
+        Row: ConsumerOptoutRow;
+        Insert: ConsumerOptoutInsert;
+        Update: ConsumerOptoutUpdate;
+        Relationships: [];
+      };
+      tenant_owner_configs: {
+        Row: TenantOwnerConfigRow;
+        Insert: TenantOwnerConfigInsert;
+        Update: TenantOwnerConfigUpdate;
+        Relationships: [];
+      };
+      tenant_review_configs: {
+        Row: TenantReviewConfigRow;
+        Insert: TenantReviewConfigInsert;
+        Update: TenantReviewConfigUpdate;
+        Relationships: [];
+      };
+      tenant_crm_configs: {
+        Row: TenantCrmConfigRow;
+        Insert: TenantCrmConfigInsert;
+        Update: TenantCrmConfigUpdate;
+        Relationships: [];
+      };
       calls: {
         Row: CallRow;
         Insert: CallInsert;
@@ -462,6 +670,18 @@ export type Database = {
         Row: MessageRow;
         Insert: MessageInsert;
         Update: MessageUpdate;
+        Relationships: [];
+      };
+      review_requests: {
+        Row: ReviewRequestRow;
+        Insert: ReviewRequestInsert;
+        Update: ReviewRequestUpdate;
+        Relationships: [];
+      };
+      escalations: {
+        Row: EscalationRow;
+        Insert: EscalationInsert;
+        Update: EscalationUpdate;
         Relationships: [];
       };
       library_documents: {
