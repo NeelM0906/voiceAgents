@@ -31,6 +31,7 @@
     "fast-glob": "^3.3.3",
     "hono": "^4.12.22",
     "inngest": "^4.4.0",
+    "livekit-server-sdk": "2.15.3",
     "openai": "^6.39.0",
     "pino": "^10.3.1",
     "twilio": "^6.0.2",

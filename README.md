@@ -1,6 +1,6 @@
 # voiceAgents v1
 
-AI receptionist service for inbound voice and SMS. v1 ships the shared tenant/contact conversation spine, hybrid methodology retrieval, SMS compliance, emergency escalation, call summaries, review requests, and GoHighLevel CRM sync.
+AI receptionist service for inbound and outbound voice plus SMS. v1 ships the shared tenant/contact conversation spine, hybrid methodology retrieval, SMS compliance, emergency escalation, call summaries, review requests, and GoHighLevel CRM sync.
 
 ## Architecture
 
@@ -9,6 +9,8 @@ flowchart LR
   Caller[Caller] -->|Voice| TwilioVoice[Twilio Voice]
   TwilioVoice --> LiveKit[LiveKit SIP + Room]
   LiveKit --> Worker[LiveKit Agent Worker]
+  Api -->|Outbound call request| LiveKit
+  LiveKit -->|SIP outbound| Caller
   Caller -->|SMS| TwilioSms[Twilio Messaging]
   TwilioSms --> Api[Hono API]
   Api --> Inngest[Inngest Functions]
@@ -62,6 +64,7 @@ pnpm dev
 | `LIVEKIT_API_KEY` | worker | LiveKit API key. |
 | `LIVEKIT_API_SECRET` | worker | LiveKit API secret. |
 | `LIVEKIT_AGENT_NAME` | worker | Dispatch name, default `inbound-agent`. |
+| `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` | api | Required for outbound voice calls. |
 | `OPENAI_API_KEY` | both | Realtime, SMS, summaries, eval. |
 | `OPENAI_SMS_MODEL` | api | Default SMS model. |
 | `CALL_SUMMARY_MODEL` | api | Default summary model. |
@@ -143,6 +146,7 @@ Tenant and conversation:
 - `GET /admin/tenants/:idOrSlug/conversations`
 - `GET /admin/tenants/:idOrSlug/conversations/:conversationId/messages`
 - `POST /admin/tenants/:idOrSlug/send-test-sms`
+- `POST /admin/tenants/:idOrSlug/calls/outbound`
 
 v1 operations:
 
@@ -182,6 +186,8 @@ All consumer outbound SMS goes through `sendSms`, which checks `consumer_optouts
 
 ## v1 Workflows
 
+- Inbound voice calls arrive through Twilio/LiveKit SIP and are handled by the LiveKit agent worker.
+- Outbound voice calls are started by `POST /admin/tenants/:idOrSlug/calls/outbound`; the API creates a LiveKit room, dispatches the agent, and dials the contact through the configured outbound SIP trunk.
 - `voice/call.completed` fans out to follow-up SMS, call summary, review request, and CRM sync.
 - `summarize-call` writes `calls.summary`, `calls.key_facts`, and `calls.outcome`.
 - `send-review-request` enforces tenant config, duration minimums, delay, and opt-out checks.

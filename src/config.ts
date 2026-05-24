@@ -61,6 +61,7 @@ const envSchema = z.object({
   ),
   LIVEKIT_API_KEY: optionalNonEmptyString,
   LIVEKIT_API_SECRET: optionalNonEmptyString,
+  LIVEKIT_SIP_OUTBOUND_TRUNK_ID: optionalNonEmptyString,
   OPENAI_API_KEY: optionalNonEmptyString,
   TWILIO_ACCOUNT_SID: optionalNonEmptyString,
   TWILIO_AUTH_TOKEN: optionalNonEmptyString,

@@ -3,7 +3,7 @@
 v1 runs two Fly apps from the same Docker image:
 
 - `voice-agents-worker`: LiveKit agent worker, command `node dist/agent.js start`.
-- `voice-agents-api`: public HTTPS API, command `node dist/api.js`, hosting admin routes, Twilio webhooks, and `/api/inngest`.
+- `voice-agents-api`: public HTTPS API, command `node dist/api.js`, hosting admin routes, outbound call initiation, Twilio webhooks, and `/api/inngest`.
 
 ## 1. Create Apps
 
@@ -26,6 +26,7 @@ flyctl secrets set --app voice-agents-worker \
   LIVEKIT_URL=... \
   LIVEKIT_API_KEY=... \
   LIVEKIT_API_SECRET=... \
+  LIVEKIT_SIP_OUTBOUND_TRUNK_ID=... \
   OPENAI_API_KEY=... \
   SUPABASE_URL=... \
   SUPABASE_SERVICE_ROLE_KEY=... \
@@ -47,6 +48,10 @@ flyctl secrets set --app voice-agents-api \
   INNGEST_SIGNING_KEY=... \
   INNGEST_APP_ID=voice-agents \
   PUBLIC_BASE_URL=https://<api-host> \
+  LIVEKIT_URL=... \
+  LIVEKIT_API_KEY=... \
+  LIVEKIT_API_SECRET=... \
+  LIVEKIT_SIP_OUTBOUND_TRUNK_ID=... \
   CRM_CREDENTIAL_KEY=... \
   COHERE_API_KEY=...
 ```
@@ -103,7 +108,7 @@ For each tenant messaging number, set the Messaging webhook to:
 https://<api-host>/webhooks/twilio/sms
 ```
 
-Voice routing stays on the LiveKit SIP path from earlier iterations.
+Voice routing stays on the LiveKit SIP path from earlier iterations. For outbound voice, configure a LiveKit outbound SIP trunk backed by your telephony provider and set `LIVEKIT_SIP_OUTBOUND_TRUNK_ID` on the API app.
 
 ## 7. Supabase
 

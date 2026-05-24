@@ -35,6 +35,9 @@ importers:
       inngest:
         specifier: ^4.4.0
         version: 4.4.0(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(hono@4.12.22)(typescript@6.0.3)(zod@4.4.3)
+      livekit-server-sdk:
+        specifier: 2.15.3
+        version: 2.15.3
       openai:
         specifier: ^6.39.0
         version: 6.39.0(ws@8.21.0)(zod@4.4.3)

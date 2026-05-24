@@ -17,9 +17,9 @@ import {
   getOrCreateConversationByContact,
   bumpConversationLastMessageAt,
 } from './db/conversations.js';
-import { insertCall, updateCallEnded } from './db/calls.js';
+import { getCallById, insertCall, updateCallEnded } from './db/calls.js';
 import { insertMessage, recentMessagesForContext } from './db/messages.js';
-import { getTenantByPhoneNumber } from './db/tenants.js';
+import { getTenantByPhoneNumber, getTenantBySlugOrId } from './db/tenants.js';
 import { flagEmergency } from './escalation.js';
 import type { CallRow, CallStatus, MessageRow, TenantWithVoiceConfig } from './db/types.js';
 import { inngest } from './inngest/client.js';
@@ -81,6 +81,39 @@ function getSipCallId(participant: SipParticipant): string | null {
     participant.attributes['sip.twilio.callSid'] ??
     null
   );
+}
+
+function getOutboundParticipantContext(participant: SipParticipant):
+  | {
+      tenantId: string;
+      callId: string;
+      conversationId: string | null;
+      contactPhone: string;
+      fromNumber: string;
+      firstMessage?: string;
+    }
+  | null {
+  if (participant.attributes['va.direction'] !== 'outbound') {
+    return null;
+  }
+
+  const tenantId = participant.attributes['va.tenantId'];
+  const callId = participant.attributes['va.callId'];
+  const contactPhone = normalizePhoneE164(participant.attributes['va.contactPhone']);
+  const fromNumber = normalizePhoneE164(participant.attributes['va.fromNumber']);
+
+  if (!tenantId || !callId || !contactPhone || !fromNumber) {
+    return null;
+  }
+
+  return {
+    tenantId,
+    callId,
+    conversationId: participant.attributes['va.conversationId'] || null,
+    contactPhone,
+    fromNumber,
+    firstMessage: participant.attributes['va.firstMessage'],
+  };
 }
 
 function createCallFinalizer(
@@ -205,16 +238,27 @@ async function startTenantSession(options: {
   calledNumber: string;
   callerNumber: string | null;
   sipCallId: string | null;
+  existingCallId?: string | null;
+  existingConversationId?: string | null;
+  firstMessageOverride?: string;
 }) {
   const { tenant, voice_config: voiceConfig } = options.tenantConfig;
-  const call = await insertCall({
-    tenant_id: tenant.id,
-    sip_call_id: options.sipCallId,
-    livekit_room_name: options.roomName,
-    caller_number: options.callerNumber,
-    called_number: options.calledNumber,
-    status: 'in_progress',
-  });
+  const existingCall = options.existingCallId
+    ? await getCallById({
+        tenantId: tenant.id,
+        callId: options.existingCallId,
+      })
+    : null;
+  const call =
+    existingCall ??
+    (await insertCall({
+      tenant_id: tenant.id,
+      sip_call_id: options.sipCallId,
+      livekit_room_name: options.roomName,
+      caller_number: options.callerNumber,
+      called_number: options.calledNumber,
+      status: 'in_progress',
+    }));
 
   const logFields = {
     callId: call.id,
@@ -225,10 +269,10 @@ async function startTenantSession(options: {
     tenantSlug: tenant.slug,
   };
 
-  let conversationId: string | null = null;
+  let conversationId: string | null = options.existingConversationId ?? null;
   const contactPhone = normalizePhoneE164(options.callerNumber);
 
-  if (contactPhone) {
+  if (contactPhone && !conversationId) {
     try {
       const conversation = await getOrCreateConversationByContact({
         tenantId: tenant.id,
@@ -329,7 +373,7 @@ async function startTenantSession(options: {
       'voice session started',
     );
 
-    await session.say(voiceConfig.first_message).waitForPlayout();
+    await session.say(options.firstMessageOverride ?? voiceConfig.first_message).waitForPlayout();
   } catch (error) {
     logger.error({ ...logFields, event: 'error', error }, 'tenant voice session failed');
     await finalizeCall('failed');
@@ -572,7 +616,7 @@ export default defineAgent<ProcessUserData>({
         jobId: ctx.job.id,
         roomName,
       },
-      'starting inbound voice session',
+      'starting voice session',
     );
 
     await ctx.connect();
@@ -582,8 +626,9 @@ export default defineAgent<ProcessUserData>({
       kind: SIP_PARTICIPANT_KIND,
     })) as SipParticipant;
 
-    const calledNumber = getCalledNumber(participant);
-    const callerNumber = getCallerNumber(participant);
+    const outboundContext = getOutboundParticipantContext(participant);
+    const calledNumber = outboundContext?.fromNumber ?? getCalledNumber(participant);
+    const callerNumber = outboundContext?.contactPhone ?? getCallerNumber(participant);
     const sipCallId = getSipCallId(participant);
     const baseLogFields = {
       roomName,
@@ -592,6 +637,43 @@ export default defineAgent<ProcessUserData>({
     };
 
     logger.info({ ...baseLogFields, event: 'call_received' }, 'call received');
+
+    if (outboundContext) {
+      try {
+        const details = await getTenantBySlugOrId(outboundContext.tenantId);
+
+        if (!details || details.tenant.status !== 'active') {
+          throw new Error('outbound tenant not found or inactive');
+        }
+
+        await startTenantSession({
+          ctx,
+          vad,
+          tenantConfig: details,
+          roomName,
+          calledNumber: outboundContext.fromNumber,
+          callerNumber: outboundContext.contactPhone,
+          sipCallId,
+          existingCallId: outboundContext.callId,
+          existingConversationId: outboundContext.conversationId,
+          firstMessageOverride: outboundContext.firstMessage,
+        });
+      } catch (error) {
+        logger.error(
+          { ...baseLogFields, event: 'error', error, callId: outboundContext.callId },
+          'outbound tenant session failed',
+        );
+
+        await speakAndDisconnect({
+          ctx,
+          vad,
+          message: TECHNICAL_DIFFICULTIES_MESSAGE,
+          logFields: { ...baseLogFields, callId: outboundContext.callId },
+        });
+      }
+
+      return;
+    }
 
     if (!calledNumber) {
       const failedCall = await insertFailedCall({
