@@ -11,11 +11,19 @@ import * as openai from '@livekit/agents-plugin-openai';
 import * as silero from '@livekit/agents-plugin-silero';
 import { fileURLToPath } from 'node:url';
 import { config, getWorkerConfig } from './config.js';
+import {
+  getOrCreateConversationByContact,
+  bumpConversationLastMessageAt,
+} from './db/conversations.js';
 import { insertCall, updateCallEnded } from './db/calls.js';
+import { insertMessage, recentMessagesForContext } from './db/messages.js';
 import { getTenantByPhoneNumber } from './db/tenants.js';
-import type { CallStatus, TenantWithVoiceConfig } from './db/types.js';
+import type { CallRow, CallStatus, MessageRow, TenantWithVoiceConfig } from './db/types.js';
+import { inngest } from './inngest/client.js';
+import { voiceCallCompletedEvent } from './inngest/events.js';
 import { TECHNICAL_DIFFICULTIES_MESSAGE } from './instructions.js';
 import { logger } from './logger.js';
+import { normalizePhoneE164 } from './utils/phone.js';
 
 type ProcessUserData = {
   vad?: silero.VAD;
@@ -44,34 +52,19 @@ const SIP_PARTICIPANT_KIND = 3;
 const UNKNOWN_CALLED_NUMBER = 'unknown';
 const workerConfig = getWorkerConfig();
 
-function normalizePhoneNumber(value: string | undefined): string | null {
-  const trimmed = value?.trim();
-
-  if (!trimmed) {
-    return null;
-  }
-
-  const withoutSipScheme = trimmed.replace(/^sip:/i, '');
-  const userPart = withoutSipScheme.split('@')[0]?.trim();
-
-  if (!userPart) {
-    return null;
-  }
-
-  const normalized = userPart.startsWith('+') ? userPart : `+${userPart}`;
-  return /^\+[1-9]\d{1,14}$/.test(normalized) ? normalized : null;
-}
-
 function getCalledNumber(participant: SipParticipant): string | null {
   return (
-    normalizePhoneNumber(participant.attributes['sip.toUser']) ??
-    normalizePhoneNumber(participant.attributes['sip.trunkPhoneNumber']) ??
-    normalizePhoneNumber(participant.attributes['sip.calledNumber'])
+    normalizePhoneE164(participant.attributes['sip.toUser']) ??
+    normalizePhoneE164(participant.attributes['sip.trunkPhoneNumber']) ??
+    normalizePhoneE164(participant.attributes['sip.calledNumber'])
   );
 }
 
 function getCallerNumber(participant: SipParticipant): string | null {
-  return normalizePhoneNumber(participant.attributes['sip.phoneNumber']);
+  return (
+    normalizePhoneE164(participant.attributes['sip.fromUser']) ??
+    normalizePhoneE164(participant.attributes['sip.phoneNumber'])
+  );
 }
 
 function getSipCallId(participant: SipParticipant): string | null {
@@ -83,7 +76,11 @@ function getSipCallId(participant: SipParticipant): string | null {
   );
 }
 
-function createCallFinalizer(callId: string, fields: Omit<CallLogFields, 'event'>) {
+function createCallFinalizer(
+  callId: string,
+  fields: Omit<CallLogFields, 'event'>,
+  onCompleted?: (call: CallRow) => Promise<void>,
+) {
   let finalized = false;
 
   return async (status: CallStatus) => {
@@ -93,14 +90,25 @@ function createCallFinalizer(callId: string, fields: Omit<CallLogFields, 'event'
 
     finalized = true;
 
+    let call: CallRow;
+
     try {
-      await updateCallEnded(callId, status);
+      call = await updateCallEnded(callId, status);
       logger.info({ ...fields, callId, event: 'session_ended', status }, 'session ended');
     } catch (error) {
       logger.error(
         { ...fields, callId, event: 'error', error },
         'failed to update call end status',
       );
+      return;
+    }
+
+    if (status === 'completed' && onCompleted) {
+      try {
+        await onCompleted(call);
+      } catch (error) {
+        logger.error({ ...fields, callId, event: 'error', error }, 'call completion hook failed');
+      }
     }
   };
 }
@@ -209,7 +217,44 @@ async function startTenantSession(options: {
     tenantId: tenant.id,
     tenantSlug: tenant.slug,
   };
-  const finalizeCall = createCallFinalizer(call.id, logFields);
+
+  let conversationId: string | null = null;
+  const contactPhone = normalizePhoneE164(options.callerNumber);
+
+  if (contactPhone) {
+    try {
+      const conversation = await getOrCreateConversationByContact({
+        tenantId: tenant.id,
+        contactPhone,
+      });
+      conversationId = conversation.id;
+    } catch (error) {
+      logger.error({ ...logFields, event: 'error', error }, 'failed to create voice conversation');
+    }
+  }
+
+  const finalizeCall = createCallFinalizer(call.id, logFields, async (completedCall) => {
+    if (!contactPhone || tenant.status !== 'active') {
+      return;
+    }
+
+    const durationMs = calculateDurationMs(completedCall);
+
+    await inngest.send(
+      voiceCallCompletedEvent.create(
+        {
+          callId: call.id,
+          tenantId: tenant.id,
+          contactPhone,
+          calledNumber: options.calledNumber,
+          durationMs,
+        },
+        {
+          id: call.id,
+        },
+      ),
+    );
+  });
 
   options.ctx.addShutdownCallback(async () => {
     await finalizeCall('completed');
@@ -217,8 +262,16 @@ async function startTenantSession(options: {
 
   logger.info({ ...logFields, event: 'tenant_resolved' }, 'tenant resolved');
 
+  const recentMessages = conversationId
+    ? await loadRecentMessagesForVoiceContext({
+        tenantId: tenant.id,
+        conversationId,
+        logFields,
+      })
+    : [];
+
   const agent = new voice.Agent({
-    instructions: voiceConfig.system_prompt,
+    instructions: buildVoiceInstructions(voiceConfig.system_prompt, recentMessages),
   });
   const session = createSession({
     vad: options.vad,
@@ -229,6 +282,16 @@ async function startTenantSession(options: {
   session.on(voice.AgentSessionEventTypes.Error, (event) => {
     logger.error({ ...logFields, event: 'error', error: event.error }, 'voice session error');
   });
+
+  if (conversationId) {
+    registerVoiceTranscriptPersistence({
+      session,
+      tenantId: tenant.id,
+      conversationId,
+      callId: call.id,
+      logFields,
+    });
+  }
 
   session.on(voice.AgentSessionEventTypes.Close, (event) => {
     logger.info({ ...logFields, event: 'session_ended', reason: event.reason }, 'voice session closed');
@@ -257,6 +320,145 @@ async function startTenantSession(options: {
     await finalizeCall('failed');
     throw error;
   }
+}
+
+async function loadRecentMessagesForVoiceContext(input: {
+  tenantId: string;
+  conversationId: string;
+  logFields: Omit<CallLogFields, 'event'>;
+}): Promise<MessageRow[]> {
+  try {
+    const messages = await recentMessagesForContext({
+      tenantId: input.tenantId,
+      conversationId: input.conversationId,
+      limit: config.SMS_HISTORY_WINDOW,
+    });
+
+    logger.info(
+      {
+        ...input.logFields,
+        event: 'shared_context_loaded',
+        historyCount: messages.length,
+      },
+      'loaded shared conversation context for voice',
+    );
+
+    return messages;
+  } catch (error) {
+    logger.error(
+      { ...input.logFields, event: 'error', error },
+      'failed to load shared conversation context',
+    );
+    return [];
+  }
+}
+
+function buildVoiceInstructions(systemPrompt: string, recentMessages: MessageRow[]): string {
+  if (recentMessages.length === 0) {
+    return systemPrompt;
+  }
+
+  return `${formatRecentContext(recentMessages)}\n\n${systemPrompt}`;
+}
+
+function formatRecentContext(messages: MessageRow[]): string {
+  return `Recent context (most recent last):\n${messages.map(formatContextLine).join('\n')}`;
+}
+
+function formatContextLine(message: MessageRow): string {
+  const timestamp = new Date(message.created_at).toISOString().slice(0, 16).replace('T', ' ');
+  return `[${timestamp}] [${message.channel}] [${message.role}]: ${message.content}`;
+}
+
+function registerVoiceTranscriptPersistence(input: {
+  session: voice.AgentSession;
+  tenantId: string;
+  conversationId: string;
+  callId: string;
+  logFields: Omit<CallLogFields, 'event'>;
+}) {
+  input.session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (event) => {
+    if (!event.isFinal) {
+      return;
+    }
+
+    persistVoiceMessage({
+      ...input,
+      role: 'user',
+      content: event.transcript,
+    });
+  });
+
+  input.session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (event) => {
+    if (event.item.type !== 'message' || event.item.role !== 'assistant') {
+      return;
+    }
+
+    const content = event.item.textContent?.trim();
+
+    if (!content) {
+      return;
+    }
+
+    persistVoiceMessage({
+      ...input,
+      role: 'assistant',
+      content,
+    });
+  });
+}
+
+function persistVoiceMessage(input: {
+  tenantId: string;
+  conversationId: string;
+  callId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  logFields: Omit<CallLogFields, 'event'>;
+}) {
+  const content = input.content.trim();
+
+  if (!content) {
+    return;
+  }
+
+  void (async () => {
+    try {
+      const message = await insertMessage({
+        tenantId: input.tenantId,
+        conversationId: input.conversationId,
+        channel: 'voice',
+        role: input.role,
+        content,
+        callId: input.callId,
+        metadata: {
+          source: 'realtime',
+        },
+      });
+
+      await bumpConversationLastMessageAt({
+        tenantId: input.tenantId,
+        conversationId: input.conversationId,
+        lastMessageAt: message.created_at,
+      });
+    } catch (error) {
+      logger.error(
+        { ...input.logFields, callId: input.callId, event: 'error', error },
+        'failed to persist voice message',
+      );
+    }
+  })();
+}
+
+function calculateDurationMs(call: CallRow): number {
+  const startedAt = Date.parse(call.started_at);
+  const endedAt = call.ended_at ? Date.parse(call.ended_at) : Date.now();
+
+  if (!Number.isFinite(startedAt) || !Number.isFinite(endedAt)) {
+    return 0;
+  }
+
+  return Math.max(0, endedAt - startedAt);
 }
 
 export default defineAgent<ProcessUserData>({
