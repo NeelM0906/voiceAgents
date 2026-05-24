@@ -6,7 +6,7 @@ import { getTenantByPhoneNumber } from '../../db/tenants.js';
 import type { MessageRow, TenantSmsConfigRow, TenantStatus } from '../../db/types.js';
 import { generateSmsReply } from '../../llm/sms.js';
 import { logger } from '../../logger.js';
-import { sendSms } from '../../twilio/client.js';
+import { OptedOutError, sendSms } from '../../twilio/client.js';
 import { inngest } from '../client.js';
 import { smsInboundReceivedEvent } from '../events.js';
 
@@ -138,12 +138,29 @@ export const handleInboundSms = inngest.createFunction(
     });
 
     const outbound = await step.run('send-sms', async () => {
-      return sendSms({
-        from: calledNumber,
-        to: contactPhone,
-        body: reply,
-      });
+      try {
+        return await sendSms({
+          tenantId,
+          contactPhone,
+          from: calledNumber,
+          to: contactPhone,
+          body: reply,
+        });
+      } catch (error) {
+        if (error instanceof OptedOutError) {
+          functionLogger.info({ ...logFields, reason: 'opted_out' }, 'skipping SMS reply');
+          return null;
+        }
+
+        throw error;
+      }
     });
+
+    if (!outbound) {
+      return {
+        skipped: 'opted_out',
+      };
+    }
 
     const assistantMessage = await step.run('persist-assistant-message', async () => {
       return insertMessage({

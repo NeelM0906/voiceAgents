@@ -8,7 +8,7 @@ import {
 } from '../db/conversations.js';
 import { insertMessage, listMessagesByConversation } from '../db/messages.js';
 import { getTenantBySlugOrId } from '../db/tenants.js';
-import { sendSms } from '../twilio/client.js';
+import { OptedOutError, sendSms } from '../twilio/client.js';
 import { normalizePhoneE164 } from '../utils/phone.js';
 import { handleAdminRouteError, parseJsonBody } from './admin-utils.js';
 
@@ -150,6 +150,8 @@ conversationRoutes.post('/:slugOrId/send-test-sms', async (c) => {
     });
 
     const outbound = await sendSms({
+      tenantId: details.tenant.id,
+      contactPhone: parsed.data.to,
       from,
       to: parsed.data.to,
       body: parsed.data.body,
@@ -182,6 +184,10 @@ conversationRoutes.post('/:slugOrId/send-test-sms', async (c) => {
       201,
     );
   } catch (error) {
+    if (error instanceof OptedOutError) {
+      return c.json({ error: 'opted_out' }, 409);
+    }
+
     return handleAdminRouteError(c, error);
   }
 });

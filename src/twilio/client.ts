@@ -1,5 +1,6 @@
 import twilio from 'twilio';
 import { config } from '../config.js';
+import { isConsumerOptedOut } from '../db/optouts.js';
 
 const accountSid = config.TWILIO_ACCOUNT_SID;
 const authToken = config.TWILIO_AUTH_TOKEN;
@@ -9,6 +10,16 @@ if (!accountSid || !authToken) {
 }
 
 const client = twilio(accountSid, authToken);
+
+export class OptedOutError extends Error {
+  constructor(
+    public readonly tenantId: string,
+    public readonly contactPhone: string,
+  ) {
+    super(`Outbound SMS blocked because contact is opted out: ${tenantId}/${contactPhone}`);
+    this.name = 'OptedOutError';
+  }
+}
 
 export async function sendSmsRaw(input: {
   from: string;
@@ -27,9 +38,20 @@ export async function sendSmsRaw(input: {
 }
 
 export async function sendSms(input: {
+  tenantId: string;
+  contactPhone: string;
   from: string;
   to: string;
   body: string;
 }): Promise<{ sid: string }> {
+  const optedOut = await isConsumerOptedOut({
+    tenantId: input.tenantId,
+    contactPhone: input.contactPhone,
+  });
+
+  if (optedOut) {
+    throw new OptedOutError(input.tenantId, input.contactPhone);
+  }
+
   return sendSmsRaw(input);
 }

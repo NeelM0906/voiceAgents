@@ -7,7 +7,7 @@ import { insertMessage } from '../../db/messages.js';
 import { getTenantByPhoneNumber } from '../../db/tenants.js';
 import type { TenantStatus } from '../../db/types.js';
 import { logger } from '../../logger.js';
-import { sendSms } from '../../twilio/client.js';
+import { OptedOutError, sendSms } from '../../twilio/client.js';
 import { normalizePhoneE164 } from '../../utils/phone.js';
 import { inngest } from '../client.js';
 import { voiceCallCompletedEvent } from '../events.js';
@@ -106,12 +106,29 @@ export const sendFollowupSms = inngest.createFunction(
     await step.sleep('debounce', `${context.delaySeconds}s`);
 
     const outbound = await step.run('send-followup', async () => {
-      return sendSms({
-        from: calledNumber,
-        to: context.contactPhone,
-        body: context.template,
-      });
+      try {
+        return await sendSms({
+          tenantId,
+          contactPhone: context.contactPhone,
+          from: calledNumber,
+          to: context.contactPhone,
+          body: context.template,
+        });
+      } catch (error) {
+        if (error instanceof OptedOutError) {
+          functionLogger.info({ ...logFields, reason: 'opted_out' }, 'skipping follow-up SMS');
+          return null;
+        }
+
+        throw error;
+      }
     });
+
+    if (!outbound) {
+      return {
+        skipped: 'opted_out',
+      };
+    }
 
     const persisted = await step.run('persist-followup', async () => {
       const conversation = await getOrCreateConversationByContact({
