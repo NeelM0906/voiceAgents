@@ -7,9 +7,12 @@ function optionalEnvValue(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+const signingKey = optionalEnvValue(config.INNGEST_SIGNING_KEY);
+
 export const inngest = new Inngest({
   id: config.INNGEST_APP_ID,
   eventKey: optionalEnvValue(config.INNGEST_EVENT_KEY),
-  signingKey: optionalEnvValue(config.INNGEST_SIGNING_KEY),
+  signingKey,
+  isDev: signingKey ? false : true,
   logger: logger.child({ component: 'inngest' }),
 });
