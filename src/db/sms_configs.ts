@@ -59,7 +59,7 @@ export async function patchSmsConfig(input: {
     .update(input.updates)
     .eq('tenant_id', input.tenantId)
     .select('*')
-    .single();
+    .maybeSingle();
 
   if (error) {
     throw error;
