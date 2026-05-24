@@ -3,10 +3,12 @@ import type {
   TenantDetails,
   TenantPhoneNumberRow,
   TenantRow,
+  TenantSmsConfigRow,
   TenantStatus,
   TenantVoiceConfigInsert,
   TenantVoiceConfigRow,
   TenantVoiceConfigUpdate,
+  TenantWithConfigs,
   TenantWithVoiceConfig,
 } from './types.js';
 
@@ -29,6 +31,7 @@ export class DbNotFoundError extends Error {
 type PhoneTenantJoin = {
   phone_number: string;
   tenant: (TenantRow & {
+    sms_config: TenantSmsConfigRow | TenantSmsConfigRow[] | null;
     voice_config: TenantVoiceConfigRow | TenantVoiceConfigRow[] | null;
   }) | null;
 };
@@ -49,9 +52,19 @@ function normalizeVoiceConfig(
   return voiceConfig;
 }
 
+function normalizeSmsConfig(
+  smsConfig: TenantSmsConfigRow | TenantSmsConfigRow[] | null,
+): TenantSmsConfigRow | null {
+  if (Array.isArray(smsConfig)) {
+    return smsConfig[0] ?? null;
+  }
+
+  return smsConfig;
+}
+
 export async function getTenantByPhoneNumber(
   phoneNumber: string,
-): Promise<TenantWithVoiceConfig | null> {
+): Promise<TenantWithConfigs | null> {
   const { data, error } = await supabase
     .from('tenant_phone_numbers')
     .select(
@@ -59,7 +72,8 @@ export async function getTenantByPhoneNumber(
         phone_number,
         tenant:tenants!tenant_phone_numbers_tenant_id_fkey (
           *,
-          voice_config:tenant_voice_configs!tenant_voice_configs_tenant_id_fkey (*)
+          voice_config:tenant_voice_configs!tenant_voice_configs_tenant_id_fkey (*),
+          sms_config:tenant_sms_configs!tenant_sms_configs_tenant_id_fkey (*)
         )
       `,
     )
@@ -76,15 +90,17 @@ export async function getTenantByPhoneNumber(
   }
 
   const voiceConfig = normalizeVoiceConfig(data.tenant.voice_config);
+  const smsConfig = normalizeSmsConfig(data.tenant.sms_config);
 
   if (!voiceConfig) {
     return null;
   }
 
-  const { voice_config: _voiceConfig, ...tenant } = data.tenant;
+  const { sms_config: _smsConfig, voice_config: _voiceConfig, ...tenant } = data.tenant;
 
   return {
     tenant,
+    sms_config: smsConfig,
     voice_config: voiceConfig,
   };
 }

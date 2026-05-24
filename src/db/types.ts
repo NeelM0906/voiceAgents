@@ -2,6 +2,8 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 
 export type TenantStatus = 'active' | 'paused';
 export type CallStatus = 'in_progress' | 'completed' | 'failed' | 'rejected_no_tenant';
+export type MessageChannel = 'sms' | 'voice';
+export type MessageRole = 'user' | 'assistant' | 'system';
 
 export type TenantRow = {
   id: string;
@@ -72,6 +74,32 @@ export type TenantVoiceConfigUpdate = {
   updated_at?: string;
 };
 
+export type TenantSmsConfigRow = {
+  tenant_id: string;
+  system_prompt: string;
+  model: string;
+  follow_up_sms_template: string | null;
+  follow_up_delay_seconds: number;
+  updated_at: string;
+};
+
+export type TenantSmsConfigInsert = {
+  tenant_id: string;
+  system_prompt: string;
+  model?: string;
+  follow_up_sms_template?: string | null;
+  follow_up_delay_seconds?: number;
+  updated_at?: string;
+};
+
+export type TenantSmsConfigUpdate = {
+  system_prompt?: string;
+  model?: string;
+  follow_up_sms_template?: string | null;
+  follow_up_delay_seconds?: number;
+  updated_at?: string;
+};
+
 export type CallRow = {
   id: string;
   tenant_id: string | null;
@@ -110,6 +138,59 @@ export type CallUpdate = {
   metadata?: Json;
 };
 
+export type ConversationRow = {
+  id: string;
+  tenant_id: string;
+  contact_phone: string;
+  last_message_at: string;
+  created_at: string;
+};
+
+export type ConversationInsert = {
+  id?: string;
+  tenant_id: string;
+  contact_phone: string;
+  last_message_at?: string;
+  created_at?: string;
+};
+
+export type ConversationUpdate = {
+  contact_phone?: string;
+  last_message_at?: string;
+  created_at?: string;
+};
+
+export type MessageRow = {
+  id: string;
+  conversation_id: string;
+  tenant_id: string;
+  channel: MessageChannel;
+  role: MessageRole;
+  content: string;
+  call_id: string | null;
+  external_id: string | null;
+  metadata: Json;
+  created_at: string;
+};
+
+export type MessageInsert = {
+  id?: string;
+  conversation_id: string;
+  tenant_id: string;
+  channel: MessageChannel;
+  role: MessageRole;
+  content: string;
+  call_id?: string | null;
+  external_id?: string | null;
+  metadata?: Json;
+  created_at?: string;
+};
+
+export type MessageUpdate = {
+  content?: string;
+  metadata?: Json;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -131,10 +212,28 @@ export type Database = {
         Update: TenantVoiceConfigUpdate;
         Relationships: [];
       };
+      tenant_sms_configs: {
+        Row: TenantSmsConfigRow;
+        Insert: TenantSmsConfigInsert;
+        Update: TenantSmsConfigUpdate;
+        Relationships: [];
+      };
       calls: {
         Row: CallRow;
         Insert: CallInsert;
         Update: CallUpdate;
+        Relationships: [];
+      };
+      conversations: {
+        Row: ConversationRow;
+        Insert: ConversationInsert;
+        Update: ConversationUpdate;
+        Relationships: [];
+      };
+      messages: {
+        Row: MessageRow;
+        Insert: MessageInsert;
+        Update: MessageUpdate;
         Relationships: [];
       };
     };
@@ -148,6 +247,10 @@ export type Database = {
 export type TenantWithVoiceConfig = {
   tenant: TenantRow;
   voice_config: TenantVoiceConfigRow;
+};
+
+export type TenantWithConfigs = TenantWithVoiceConfig & {
+  sms_config: TenantSmsConfigRow | null;
 };
 
 export type TenantDetails = TenantWithVoiceConfig & {
