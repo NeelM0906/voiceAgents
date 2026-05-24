@@ -78,7 +78,7 @@ const envSchema = z.object({
   API_PORT: z.coerce.number().int().positive().default(8787),
   NO_TENANT_FALLBACK_MESSAGE: nonEmptyString.default(DEFAULT_NO_TENANT_FALLBACK),
   LOG_LEVEL: logLevelSchema.default('info'),
-  ACTIVE_RAG_PIPELINE: ragPipelineSchema.default('hybrid'),
+  RAG_WINNER: ragPipelineSchema,
   RAG_TOP_K: z.coerce.number().int().min(1).max(50).default(8),
   OPENAI_EMBED_MODEL: nonEmptyString.default('text-embedding-3-small'),
   HYBRID_HYDE_ENABLED: booleanEnvSchema,

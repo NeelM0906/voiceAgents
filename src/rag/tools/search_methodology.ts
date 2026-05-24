@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { logger } from '../../logger.js';
-import { getRetrievalPipeline } from '../active.js';
-import type { RetrievalPipelineName } from '../types.js';
+import { getActiveRetrievalPipeline } from '../active.js';
 
 const toolLogger = logger.child({ component: 'rag-tool', tool: 'search_methodology' });
 
@@ -14,7 +13,6 @@ export type SearchMethodologyInput = {
   query: string;
   topK?: number;
   tenantId?: string;
-  pipeline?: RetrievalPipelineName;
 };
 
 export type SearchMethodologyOutput = {
@@ -28,7 +26,7 @@ export type SearchMethodologyOutput = {
 export async function searchMethodology(input: SearchMethodologyInput): Promise<SearchMethodologyOutput> {
   const query = input.query.trim().slice(0, 200);
   const k = Math.max(1, Math.min(10, Math.trunc(input.topK ?? 5)));
-  const pipeline = getRetrievalPipeline(input.pipeline);
+  const pipeline = getActiveRetrievalPipeline();
   const response = await pipeline.retrieve(query, {
     k,
     tenantId: input.tenantId,

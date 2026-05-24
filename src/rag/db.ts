@@ -152,7 +152,7 @@ export function documentRowToIngestionDocument(row: LibraryDocumentRow): Ingesti
 export function getPipelineConfigSnapshot(pipeline: RagPipelineName): Record<string, unknown> {
   return {
     pipeline,
-    activePipelineEnv: process.env.ACTIVE_RAG_PIPELINE ?? 'hybrid',
+    ragWinner: process.env.RAG_WINNER,
     ragTopK: process.env.RAG_TOP_K,
     openaiEmbedModel: process.env.OPENAI_EMBED_MODEL,
     hybridHydeEnabled: process.env.HYBRID_HYDE_ENABLED,

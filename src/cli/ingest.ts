@@ -3,14 +3,12 @@ import { relative, resolve } from 'node:path';
 import fg from 'fast-glob';
 import {
   countDocumentChunks,
-  countDocumentNodes,
   createLibraryDocument,
   documentRowToIngestionDocument,
   findDocumentBySourceHash,
   listLibraryDocuments,
 } from '../rag/db.js';
 import { ingestHybridDocument } from '../rag/hybrid/ingest.js';
-import { ingestPageIndexDocument } from '../rag/page_index/ingest.js';
 import { sha256 } from '../rag/hash.js';
 import type { PipelineIngestStats } from '../rag/types.js';
 
@@ -54,12 +52,9 @@ async function ingestPaths(patterns: string[], forceReindex: boolean): Promise<v
     const existing = await findDocumentBySourceHash({ sourceRef, contentHash });
 
     if (existing && !forceReindex) {
-      const [chunkCount, nodeCount] = await Promise.all([
-        countDocumentChunks(existing.id),
-        countDocumentNodes(existing.id),
-      ]);
+      const chunkCount = await countDocumentChunks(existing.id);
 
-      if (chunkCount > 0 && nodeCount > 0) {
+      if (chunkCount > 0) {
         skipped += 1;
         continue;
       }
@@ -76,14 +71,10 @@ async function ingestPaths(patterns: string[], forceReindex: boolean): Promise<v
       },
     }));
     const ingestionDocument = documentRowToIngestionDocument(document);
-    const [hybridStats, pageIndexStats] = await Promise.all([
-      ingestHybridDocument(ingestionDocument),
-      ingestPageIndexDocument(ingestionDocument),
-    ]);
+    const hybridStats = await ingestHybridDocument(ingestionDocument);
 
     summary.documents += 1;
     summary = addStats(summary, hybridStats);
-    summary = addStats(summary, pageIndexStats);
   }
 
   printSummary(summary, skipped);
@@ -95,14 +86,10 @@ async function reindexAllDocuments(): Promise<void> {
 
   for (const document of documents) {
     const ingestionDocument = documentRowToIngestionDocument(document);
-    const [hybridStats, pageIndexStats] = await Promise.all([
-      ingestHybridDocument(ingestionDocument),
-      ingestPageIndexDocument(ingestionDocument),
-    ]);
+    const hybridStats = await ingestHybridDocument(ingestionDocument);
 
     summary.documents += 1;
     summary = addStats(summary, hybridStats);
-    summary = addStats(summary, pageIndexStats);
   }
 
   printSummary(summary, 0);

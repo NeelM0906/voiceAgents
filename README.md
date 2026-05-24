@@ -8,10 +8,10 @@ SMS now follows a durable path:
 
 Twilio Messaging webhook -> Hono -> Inngest event -> tenant + shared conversation lookup -> OpenAI chat completion -> Twilio REST reply.
 
-Methodology retrieval now has two swappable backends behind one interface:
+Methodology retrieval ships with hybrid as the v1 production backend:
 
 - `hybrid`: markdown semantic chunks, `text-embedding-3-small`, Postgres full-text search, pgvector HNSW, HyDE, RRF, and Cohere rerank.
-- `page_index`: vectorless heading tree with cached LLM summaries and cached tree-walk navigation decisions.
+- `page_index`: retained in source for eval regression checks, but no longer used by production voice/SMS or `pnpm ingest`.
 
 Supabase is the system of record for tenants, phone numbers, voice configs, SMS configs, call rows, conversations, messages, methodology documents, chunks, PageIndex nodes, and eval runs. Voice and SMS share a `(tenant_id, contact_phone)` conversation key, so a caller who later texts continues the same thread.
 
@@ -66,7 +66,7 @@ cp .env.example .env.local
 | `FOLLOWUP_SMS_ENABLED` | api | Set `false` to disable post-call follow-up SMS globally. |
 | `NO_TENANT_FALLBACK_MESSAGE` | worker | Message spoken before hangup when a called number is not configured. |
 | `LOG_LEVEL` | both | `trace`, `debug`, `info`, `warn`, `error`, or `fatal`. |
-| `ACTIVE_RAG_PIPELINE` | both | `hybrid` or `page_index`; defaults to `hybrid` and controls voice/SMS tool retrieval. |
+| `RAG_WINNER` | both | Required. Set to `hybrid` for v1. The app refuses to start when unset. |
 | `RAG_TOP_K` | both | Default retrieval count, capped by tool calls. |
 | `OPENAI_EMBED_MODEL` | ingest, api | Defaults to `text-embedding-3-small` for 1536-dimension pgvector storage. |
 | `HYBRID_HYDE_ENABLED` | api | Enables HyDE query expansion for hybrid retrieval. |
@@ -74,10 +74,10 @@ cp .env.example .env.local
 | `HYBRID_RERANK_ENABLED` | api | Enables Cohere reranking for hybrid retrieval. |
 | `COHERE_API_KEY` | api | Required when hybrid rerank is enabled. |
 | `COHERE_RERANK_MODEL` | api | Defaults to `rerank-v3.5`; `rerank-3.5` is accepted as an alias in code. |
-| `PAGEINDEX_NAVIGATOR_MODEL` | api | Defaults to `gpt-4o-mini`. |
-| `PAGEINDEX_SUMMARY_MODEL` | ingest | Defaults to `gpt-4o-mini`. |
-| `PAGEINDEX_MAX_DEPTH` | api | Max tree-walk depth. Defaults to `4`. |
-| `PAGEINDEX_MAX_FANOUT` | api | Max child choices per tree-walk hop. Defaults to `3`. |
+| `PAGEINDEX_NAVIGATOR_MODEL` | eval | Retained only for page-index eval regression runs. |
+| `PAGEINDEX_SUMMARY_MODEL` | eval | Retained only for page-index eval regression runs. |
+| `PAGEINDEX_MAX_DEPTH` | eval | Retained only for page-index eval regression runs. |
+| `PAGEINDEX_MAX_FANOUT` | eval | Retained only for page-index eval regression runs. |
 | `EVAL_JUDGE_MODEL` | eval | Defaults to `gpt-4o` for answer generation and judging. |
 | `EVAL_DATASET_PATH` | eval | Optional JSONL dataset path. If absent, eval queries are generated from ingested docs. |
 
@@ -121,7 +121,7 @@ Both channels load the recent `SMS_HISTORY_WINDOW` messages from that shared con
 
 ## Methodology RAG
 
-The agent-facing tool is `search_methodology`. Both voice and SMS use `src/rag/active.ts`, so switching `ACTIVE_RAG_PIPELINE=page_index` changes both channels without code changes. The tool logs pipeline, query, latency, cost, result ids, titles, and scores at info level; full retrieved bodies are debug only.
+The agent-facing tool is `search_methodology`. Voice, SMS, and admin search now use hybrid retrieval only. The page-index code remains available to the eval runner, but production code no longer switches RAG pipelines from environment. The tool logs pipeline, query, latency, cost, result ids, titles, and scores at info level; full retrieved bodies are debug only.
 
 Ingest the fixture library:
 
@@ -149,7 +149,7 @@ Manual spot checks:
 curl -X POST http://localhost:8787/admin/library/search \
   -H "x-api-key: $ADMIN_API_KEY" \
   -H "content-type: application/json" \
-  -d '{"query":"how do I handle an emergency leak","pipeline":"hybrid","top_k":5}'
+  -d '{"query":"how do I handle an emergency leak","top_k":5}'
 ```
 
 ## Run Locally
@@ -393,12 +393,11 @@ Deletes the document and cascades to chunks and tree nodes.
 ```json
 {
   "query": "how do I handle an emergency leak",
-  "top_k": 5,
-  "pipeline": "hybrid"
+  "top_k": 5
 }
 ```
 
-`pipeline` is optional; omitted requests use `ACTIVE_RAG_PIPELINE`.
+Admin search always uses the hybrid production pipeline.
 
 `POST /admin/library/eval/run`
 

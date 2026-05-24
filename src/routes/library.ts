@@ -9,7 +9,7 @@ import {
   deleteLibraryDocument,
   listLibraryDocuments,
 } from '../rag/db.js';
-import { getRetrievalPipeline } from '../rag/active.js';
+import { getActiveRetrievalPipeline } from '../rag/active.js';
 import type { RetrievalPipelineName } from '../rag/types.js';
 import { logger } from '../logger.js';
 import { handleAdminRouteError, parseJsonBody } from './admin-utils.js';
@@ -21,7 +21,6 @@ const pipelineSchema = z.enum(['hybrid', 'page_index']);
 const searchSchema = z.object({
   query: z.string().trim().min(1).max(200),
   top_k: z.number().int().min(1).max(10).optional(),
-  pipeline: pipelineSchema.optional(),
 });
 
 const evalRunSchema = z.object({
@@ -80,7 +79,7 @@ libraryRoutes.post('/search', async (c) => {
   }
 
   try {
-    const pipeline = getRetrievalPipeline(parsed.data.pipeline);
+    const pipeline = getActiveRetrievalPipeline();
     const response = await pipeline.retrieve(parsed.data.query, {
       k: parsed.data.top_k,
     });
