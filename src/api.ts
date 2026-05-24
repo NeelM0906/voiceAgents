@@ -8,6 +8,7 @@ import { healthRoutes } from './routes/health.js';
 import { inngestRoutes } from './routes/inngest.js';
 import { libraryRoutes } from './routes/library.js';
 import { smsConfigRoutes } from './routes/sms_config.js';
+import { tenantSettingsRoutes } from './routes/tenant_settings.js';
 import { tenantRoutes } from './routes/tenants.js';
 import { webhookRoutes } from './routes/webhooks.js';
 
@@ -34,6 +35,7 @@ app.route('/admin/tenants', tenantRoutes);
 app.route('/admin/tenants', smsConfigRoutes);
 app.route('/admin/tenants', conversationRoutes);
 app.route('/admin/tenants', crmRoutes);
+app.route('/admin/tenants', tenantSettingsRoutes);
 app.route('/admin/library', libraryRoutes);
 
 serve(
